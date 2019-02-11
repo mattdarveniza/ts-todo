@@ -1,45 +1,94 @@
 import React, { Component } from "react";
 
 import Todos from "./components/Todos";
+import TodoForm, { FormTodo } from "./components/TodoForm";
 
 import Category from "./models/Category";
-import Todo from "./models/Todo";
+import Todo, { Status } from "./models/Todo";
+import { id } from "./utils";
 
 import "./App.css";
 
+interface PlainTodo {
+  id: number;
+  title: string;
+  status: Status;
+  category?: string;
+}
+
 interface State {
   textFilter: string;
-  categoryFilter?: Category;
-  categories: Category[];
-  todos: Todo[];
+  categoryFilter?: string;
+  categories: string[];
+  todos: PlainTodo[];
 }
 
 type AppAction =
-  | { type: "setText"; payload: string }
-  | { type: "setCategory"; payload: Category };
+  | { type: "setTextFilter"; payload: string }
+  | { type: "setCategoryFilter"; payload: string }
+  | { type: "clearCategoryFilter" }
+  | { type: "addTodo"; payload: PlainTodo }
+  | { type: "toggleTodo"; payload: number };
 
 const appReducer = (state: State, action: AppAction) => {
   switch (action.type) {
-    case "setText":
+    case "setTextFilter":
       return {
         ...state,
         textFilter: action.payload
       };
+    case "setCategoryFilter":
+      return {
+        ...state,
+        categoryFilter: action.payload
+      };
+    case "clearCategoryFilter":
+      return {
+        ...state,
+        categoryFilter: undefined
+      };
+    case "addTodo":
+      return {
+        ...state,
+        todos: [...state.todos, action.payload]
+      };
+    case "toggleTodo": {
+      const index = state.todos.findIndex(todo => todo.id === action.payload);
+      if (index >= 0) {
+        let todo = state.todos[index];
+        todo = {
+          ...todo,
+          status: todo.status === "completed" ? "todo" : "completed"
+        };
+        return {
+          ...state,
+          todos: [
+            ...state.todos.slice(0, index),
+            todo,
+            ...state.todos.slice(index + 1)
+          ]
+        };
+      } else {
+        return state;
+      }
+    }
     default:
       return state;
   }
 };
 
-const cat1 = new Category("coding");
-const cat2 = new Category("chores");
-
 const initialState: State = {
   textFilter: "",
-  categories: [cat1, cat2],
+  categories: ["coding", "chores"],
   todos: [
-    new Todo("Learn typescript", cat1),
-    new Todo("Rewrite the codebase", cat1),
-    new Todo("Feed the cat", cat2)
+    { id: id(), title: "Learn typescript", status: "todo", category: "coding" },
+    {
+      id: id(),
+      title: "Rewrite the codebase",
+      status: "todo",
+      category: "coding"
+    },
+    { id: id(), title: "Feed the cat", status: "todo", category: "chores" }
   ]
 };
 
@@ -48,12 +97,62 @@ const AppFC: React.FC = () => {
     appReducer,
     initialState
   );
-  const { todos, categories, textFilter, categoryFilter } = state;
+  const { textFilter, categoryFilter } = state;
 
+  /* selectors */
+  const categoryMap = React.useMemo(
+    () =>
+      state.categories.reduce<{ [x: string]: Category }>(
+        (map, c) => ({ ...map, [c]: new Category(c) }),
+        {}
+      ),
+    [state.categories]
+  );
+
+  const todos = React.useMemo(
+    () =>
+      state.todos.map(
+        ({ id, title, status, category }) =>
+          new Todo(
+            id,
+            title,
+            status,
+            category ? categoryMap[category] : undefined
+          )
+      ),
+    [state.todos]
+  );
+
+  const categories = [...Object.values<Category>(categoryMap)];
+  const selectedCategory = React.useMemo(
+    () => categories.find(c => c.name === categoryFilter),
+    [categories, categoryFilter]
+  );
+
+  /* actions */
   const onTextFilterChange = (e: React.FormEvent<HTMLInputElement>) =>
-    dispatch({ type: "setText", payload: e.currentTarget.value });
+    dispatch({ type: "setTextFilter", payload: e.currentTarget.value });
 
-  const onCategoryFilterChange = () => {};
+  const setCategory = (categoryName: string) =>
+    dispatch({
+      type: "setCategoryFilter",
+      payload: categoryName
+    });
+
+  const onCategoryFilterChange = (e: React.FormEvent<HTMLSelectElement>) =>
+    setCategory(e.currentTarget.value);
+
+  const onTodoAdd = ({ title, category }: FormTodo) =>
+    dispatch({
+      type: "addTodo",
+      payload: { id: id(), status: "todo", title, category }
+    });
+
+  const toggleTodo = (todoId: number) =>
+    dispatch({
+      type: "toggleTodo",
+      payload: todoId
+    });
 
   return (
     <div className="App">
@@ -61,11 +160,25 @@ const AppFC: React.FC = () => {
         <h1>Todos</h1>
         <input type="search" onChange={onTextFilterChange} />
         <select onChange={onCategoryFilterChange}>
+          <option value="">–</option>
           {categories.map(c => (
-            <option value={c.name}>{c.name.toUpperCase()}</option>
+            <option
+              key={c.name}
+              value={c.name}
+              selected={selectedCategory && selectedCategory === c}
+            >
+              {c.name}
+            </option>
           ))}
         </select>
-        <Todos todos={todos} textFilter={textFilter} />
+        <Todos
+          todos={todos}
+          textFilter={textFilter}
+          categoryFilter={selectedCategory}
+          onTodoToggle={toggleTodo}
+          onCategoryClick={setCategory}
+        />
+        <TodoForm onAdd={onTodoAdd} categories={categories} />
         {/* <pre>{JSON.stringify(state, null, "\n")}</pre> */}
       </header>
     </div>
